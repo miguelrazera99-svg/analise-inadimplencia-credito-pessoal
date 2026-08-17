@@ -4,6 +4,8 @@ Case de Business Analytics que acompanha demanda, risco e preço do crédito pes
 
 > **Recorte histórico fechado:** março de 2011 a dezembro de 2025. O projeto não representa um painel em tempo real e seus resultados não são atualizados automaticamente.
 
+**Dashboard online:** [explore a análise interativa no Streamlit](https://credito-inadimplencia-bcb.streamlit.app/).
+
 ## English summary
 
 This portfolio project provides a descriptive analysis of non-payroll-deducted personal loans in Brazil, combining credit originations, portfolio delinquency, interest rates, outstanding balances, the Selic rate and inflation data from the Central Bank of Brazil.
@@ -12,6 +14,7 @@ This portfolio project provides a descriptive analysis of non-payroll-deducted p
 - **Approach:** inflation adjustment, 12-month changes, rolling averages, scenario classification, robustness checks and descriptive lead-lag associations at 3, 6, 9 and 12 months.
 - **Interpretation:** credit originations are a monthly **flow**, whereas delinquency describes the accumulated portfolio **stock**. All relationships are descriptive and must not be interpreted as causal.
 - **Reproducibility:** the repository includes the executed notebook, modular Python pipeline, processed datasets, Streamlit dashboard, automated tests and a GitHub Actions workflow.
+- **Live dashboard:** [open the interactive Streamlit app](https://credito-inadimplencia-bcb.streamlit.app/).
 
 The complete methodological documentation and economic interpretation are presented below in Portuguese.
 
