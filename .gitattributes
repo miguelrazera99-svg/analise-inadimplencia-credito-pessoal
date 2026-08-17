@@ -5,3 +5,7 @@
 *.yaml text eol=lf
 *.csv text eol=lf
 *.ipynb text eol=lf
+
+# Relatorios exportados: preservados para consulta, mas excluidos das estatisticas de linguagem.
+notebooks/*.html linguist-generated=true
+outputs/figures/*.html linguist-generated=true
