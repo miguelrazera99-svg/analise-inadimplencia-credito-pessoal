@@ -51,6 +51,8 @@ Fonte: API SGS do Banco Central do Brasil. A base processada cobre **março de 2
 8. Análise descritiva de defasagens de 3, 6, 9 e 12 meses.
 9. Teste de robustez com percentis neutros de 10%, 20% e 30% e médias móveis de 3 e 6 meses.
 
+As variações em 12 meses ajudam a reduzir a influência de tendência e sazonalidade nas séries em nível, mas não garantem estacionariedade por si só. Como o projeto não executa testes formais de raiz unitária, como ADF ou KPSS, as correlações de Pearson são apresentadas apenas como associações descritivas e não como evidência causal ou validação econométrica definitiva.
+
 ### Fórmulas dos principais indicadores
 
 | Indicador | Fórmula |
@@ -149,6 +151,7 @@ O arquivo `requirements.txt` contém apenas as dependências necessárias para e
 - a classificação retrospectiva usa a amostra completa; para uso temporal, deve-se preferir a versão expansiva sem look-ahead;
 - o prêmio bruto sobre a Selic não incorpora todos os componentes do spread oficial;
 - pandemia e outros choques podem produzir rupturas estruturais.
+- as variações em 12 meses mitigam tendência e sazonalidade, mas a estacionariedade não foi comprovada por testes formais;
 - o recorte termina em dezembro de 2025 e não deve ser interpretado como monitoramento corrente do mercado.
 
 ## Aviso

@@ -2,7 +2,9 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
 
 from src.analysis import analisar_defasagens, comparar_classificacao_temporal
 
@@ -110,14 +112,48 @@ with tab_visao:
         fig_risco = px.line(risco, x="data", y=["Não consignado", "Consignado"], title="Inadimplência: não consignado × consignado", labels={"value": "% da carteira", "data": "Data", "variable": "Modalidade"})
         st.plotly_chart(fig_risco, width="stretch")
     with right:
-        preco = df.rename(columns={
-            "juros_nao_consignado_pct_mes": "Juros do crédito",
-            "selic_pct_mes": "Selic mensal",
-            "premio_sobre_selic_pp": "Prêmio bruto sobre a Selic",
-        })
-        fig_preco = px.line(preco, x="data", y=["Juros do crédito", "Selic mensal", "Prêmio bruto sobre a Selic"], title="Preço do crédito e Selic", labels={"value": "% ao mês / p.p.", "data": "Data", "variable": "Indicador"})
+        fig_preco = make_subplots(specs=[[{"secondary_y": True}]])
+        fig_preco.add_trace(
+            go.Scatter(
+                x=df["data"],
+                y=df["juros_nao_consignado_pct_mes"],
+                name="Juros do crédito",
+                mode="lines",
+            ),
+            secondary_y=False,
+        )
+        fig_preco.add_trace(
+            go.Scatter(
+                x=df["data"],
+                y=df["premio_sobre_selic_pp"],
+                name="Prêmio bruto sobre a Selic",
+                mode="lines",
+            ),
+            secondary_y=False,
+        )
+        fig_preco.add_trace(
+            go.Scatter(
+                x=df["data"],
+                y=df["selic_pct_mes"],
+                name="Selic mensal",
+                mode="lines",
+                line={"dash": "dot"},
+            ),
+            secondary_y=True,
+        )
+        fig_preco.update_layout(
+            title="Preço do crédito e Selic",
+            hovermode="x unified",
+            legend_title_text="Indicador",
+        )
+        fig_preco.update_xaxes(title_text="Data")
+        fig_preco.update_yaxes(title_text="Juros e prêmio (% a.m. / p.p.)", secondary_y=False)
+        fig_preco.update_yaxes(title_text="Selic (% a.m.)", rangemode="tozero", secondary_y=True)
         st.plotly_chart(fig_preco, width="stretch")
-        st.caption("O prêmio bruto sobre a Selic não é o spread bancário oficial.")
+        st.caption(
+            "A Selic usa o eixo direito para preservar sua legibilidade. "
+            "O prêmio bruto sobre a Selic não é o spread bancário oficial."
+        )
 
     st.subheader("Distribuição dos cenários")
     contagem = df.dropna(subset=["cenario_principal"]).groupby("cenario_principal", as_index=False).size().sort_values("size", ascending=False)
