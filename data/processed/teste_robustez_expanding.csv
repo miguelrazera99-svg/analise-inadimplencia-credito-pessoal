@@ -1,0 +1,7 @@
+﻿media_movel_meses,percentil_neutro,concordancia_com_referencia_pct,cenarios_distintos,observacoes,modo_limite,divergencias,cenario_ultimo_mes
+3,10,86.13138686131386,6,137,expanding,19,Crescimento com alerta
+3,20,100.0,6,137,expanding,0,Deterioracao do risco
+3,30,95.62043795620438,6,137,expanding,6,Deterioracao do risco
+6,10,82.48175182481752,6,137,expanding,24,Crescimento com alerta
+6,20,89.78102189781022,6,137,expanding,14,Crescimento com alerta
+6,30,88.32116788321169,6,137,expanding,16,Deterioracao do risco

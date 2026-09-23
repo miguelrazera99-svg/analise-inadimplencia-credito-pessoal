@@ -29,3 +29,6 @@ jobs:
 
       - name: Executar testes
         run: python -m pytest -q
+
+      - name: Executar notebook com a base versionada
+        run: python -m jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=180 notebooks/01_coleta_bcb.ipynb

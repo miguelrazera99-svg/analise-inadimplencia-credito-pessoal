@@ -1,4 +1,5 @@
 ﻿pandas>=2.2,<4
 requests>=2.32,<3
 plotly>=6,<7
-streamlit>=1.40,<2
+streamlit>=1.57,<2
+numpy>=1.26,<3

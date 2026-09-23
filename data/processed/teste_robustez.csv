@@ -1,7 +1,7 @@
-﻿media_movel_meses,percentil_neutro,concordancia_com_referencia_pct,cenarios_distintos,observacoes
-3,10,85.36585365853658,6,164
-3,20,100.0,6,164
-3,30,91.46341463414635,6,164
-6,10,81.98757763975155,6,161
-6,20,90.6832298136646,6,161
-6,30,85.71428571428571,6,161
+﻿media_movel_meses,percentil_neutro,concordancia_com_referencia_pct,cenarios_distintos,observacoes,modo_limite,divergencias,cenario_ultimo_mes
+3,10,85.09316770186336,6,161,retrospectivo,24,Crescimento com alerta
+3,20,100.0,6,161,retrospectivo,0,Deterioracao do risco
+3,30,91.30434782608695,6,161,retrospectivo,14,Deterioracao do risco
+6,10,81.98757763975155,6,161,retrospectivo,29,Crescimento com alerta
+6,20,90.6832298136646,6,161,retrospectivo,15,Crescimento com alerta
+6,30,85.71428571428571,6,161,retrospectivo,23,Deterioracao do risco

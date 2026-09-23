@@ -2,3 +2,4 @@
 jupyterlab>=4,<5
 ipykernel>=6,<8
 pytest>=8,<10
+nbconvert>=7,<8
