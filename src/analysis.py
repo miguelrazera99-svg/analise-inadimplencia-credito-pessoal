@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import pandas as pd
+import numpy as np
 
 
 ROTULO_EXPANSAO = "Expansão sem deterioração observada"
@@ -28,10 +29,24 @@ def validar_base(base: pd.DataFrame) -> None:
     faltantes = obrigatorias.difference(base.columns)
     if faltantes:
         raise ValueError(f"Colunas obrigatórias ausentes: {sorted(faltantes)}")
+    if base.empty:
+        raise ValueError("A base está vazia.")
+    if not pd.api.types.is_datetime64_any_dtype(base["data"]) or base["data"].isna().any():
+        raise ValueError("Datas devem ser válidas e convertidas para datetime.")
     if base["data"].duplicated().any():
         raise ValueError("A base possui datas duplicadas.")
     if not base["data"].is_monotonic_increasing:
         raise ValueError("A base deve estar ordenada por data.")
+    esperado = pd.date_range(base["data"].min(), base["data"].max(), freq="MS")
+    if not pd.DatetimeIndex(base["data"]).equals(esperado):
+        raise ValueError("A base deve conter meses consecutivos no primeiro dia do mês.")
+    valores = base[sorted(obrigatorias - {"data"})]
+    if not all(pd.api.types.is_numeric_dtype(valores[c]) for c in valores) or not np.isfinite(valores.to_numpy()).all():
+        raise ValueError("As séries originais devem conter apenas valores numéricos finitos.")
+    if (base["ipca_pct_mes"] <= -100).any():
+        raise ValueError("IPCA deve ser maior que -100%.")
+    if (base[["concessoes_milhoes", "saldo_nao_consignado_milhoes"]] <= 0).any().any():
+        raise ValueError("Concessões e saldo devem ser positivos.")
 
 
 def resumir_qualidade(base: pd.DataFrame) -> pd.DataFrame:
@@ -92,7 +107,8 @@ def construir_metricas(
 
     ``retrospectivo`` calcula um limite único com a amostra completa e serve para
     descrever o histórico. ``expanding`` usa somente observações anteriores ao mês
-    classificado, evitando look-ahead e aproximando o uso em tempo real.
+    classificado. Isso remove o look-ahead dos limites, mas não contempla revisões
+    históricas ou atrasos de publicação das séries (não há vintages na base).
     """
     if percentil_neutro <= 0 or percentil_neutro >= 1:
         raise ValueError("O percentil neutro deve estar entre 0 e 1.")
@@ -121,9 +137,11 @@ def construir_metricas(
     tabela["saldo_real_milhoes"] = tabela["saldo_nao_consignado_milhoes"] * fator
     for janela in (3, 6):
         tabela[f"concessoes_reais_media_movel_{janela}m"] = tabela["concessoes_reais_milhoes"].rolling(janela).mean()
-        tabela[f"concessoes_reais_var_12m_pct_mm{janela}"] = tabela[f"concessoes_reais_media_movel_{janela}m"].pct_change(12, fill_method=None) * 100
+        # A unidade fixa elimina até a dependência numérica do IPCA futuro.
+        reais_base_fixa = tabela["concessoes_milhoes"] / tabela["indice_precos_ipca"]
+        tabela[f"concessoes_reais_var_12m_pct_mm{janela}"] = reais_base_fixa.rolling(janela).mean().pct_change(12, fill_method=None) * 100
     tabela["concessoes_reais_var_12m_pct"] = tabela[f"concessoes_reais_var_12m_pct_mm{janela_media_movel}"]
-    tabela["saldo_real_var_12m_pct"] = tabela["saldo_real_milhoes"].pct_change(12, fill_method=None) * 100
+    tabela["saldo_real_var_12m_pct"] = (tabela["saldo_nao_consignado_milhoes"] / tabela["indice_precos_ipca"]).pct_change(12, fill_method=None) * 100
 
     movimentos_abs = tabela[["concessoes_reais_var_12m_pct", "inadimplencia_var_12m_pp"]].abs()
     if modo_limite == "retrospectivo":
@@ -155,21 +173,38 @@ def construir_metricas(
 def analisar_defasagens(
     metricas: pd.DataFrame,
     defasagens: Iterable[int] = (3, 6, 9, 12),
+    *,
+    amostra_comum: bool = False,
 ) -> pd.DataFrame:
     """Mede associação de Pearson entre concessões atuais e inadimplência futura.
 
     O resultado é descritivo: correlação não demonstra causalidade.
     """
+    defasagens = tuple(defasagens)
+    if not defasagens or any(not isinstance(h, int) or isinstance(h, bool) or h <= 0 for h in defasagens):
+        raise ValueError("Defasagens devem ser inteiros positivos.")
+    validar_base(metricas)
     resultados = []
     x = metricas["concessoes_reais_var_12m_pct"]
+    alvos = {h: metricas["inadimplencia_var_12m_pp"].shift(-h) for h in defasagens}
+    comum = pd.concat([x, *alvos.values()], axis=1).notna().all(axis=1)
     for meses in defasagens:
-        y_futuro = metricas["inadimplencia_var_12m_pp"].shift(-meses)
+        y_futuro = alvos[meses]
         pares = pd.concat([x, y_futuro], axis=1).dropna()
+        if amostra_comum:
+            pares = pares.loc[comum.loc[pares.index]]
+        mudanca_futura = metricas["inadimplencia_nao_consignado_pct"].shift(-meses) - metricas["inadimplencia_nao_consignado_pct"]
+        def correlacao(a, b):
+            return a.corr(b) if len(a) >= 3 and a.nunique() > 1 and b.nunique() > 1 else float("nan")
         resultados.append(
             {
                 "defasagem_meses": meses,
-                "correlacao_pearson": pares.iloc[:, 0].corr(pares.iloc[:, 1]),
+                "correlacao_pearson": correlacao(pares.iloc[:, 0], pares.iloc[:, 1]),
+                "correlacao_mudanca_futura": correlacao(pares.iloc[:, 0], mudanca_futura.loc[pares.index]),
                 "observacoes": len(pares),
+                "inicio_origem": metricas.loc[pares.index, "data"].min(),
+                "fim_origem": metricas.loc[pares.index, "data"].max(),
+                "amostra": "comum" if amostra_comum else "por_horizonte",
             }
         )
     return pd.DataFrame(resultados)
@@ -179,14 +214,20 @@ def testar_robustez(
     base: pd.DataFrame,
     percentis: Iterable[float] = (0.10, 0.20, 0.30),
     janelas: Iterable[int] = (3, 6),
+    *,
+    modo_limite: str = "retrospectivo",
 ) -> pd.DataFrame:
     """Compara cenários sob percentis 10/20/30 e médias móveis 3/6 meses."""
-    referencia = construir_metricas(base, percentil_neutro=0.20, janela_media_movel=3)["cenario_principal"]
+    percentis, janelas = tuple(percentis), tuple(janelas)
+    referencia = construir_metricas(base, percentil_neutro=0.20, janela_media_movel=3, modo_limite=modo_limite)["cenario_principal"]
+    configuracoes = {(j, p): construir_metricas(base, percentil_neutro=p, janela_media_movel=j, modo_limite=modo_limite) for j in janelas for p in percentis}
+    validos = ~referencia.eq("Sem historico suficiente")
+    for teste in configuracoes.values():
+        validos &= ~teste["cenario_principal"].eq("Sem historico suficiente")
     linhas = []
     for janela in janelas:
         for percentil in percentis:
-            teste = construir_metricas(base, percentil_neutro=percentil, janela_media_movel=janela)
-            validos = ~referencia.eq("Sem historico suficiente") & ~teste["cenario_principal"].eq("Sem historico suficiente")
+            teste = configuracoes[janela, percentil]
             linhas.append(
                 {
                     "media_movel_meses": janela,
@@ -194,6 +235,9 @@ def testar_robustez(
                     "concordancia_com_referencia_pct": (referencia[validos] == teste.loc[validos, "cenario_principal"]).mean() * 100,
                     "cenarios_distintos": teste.loc[validos, "cenario_principal"].nunique(),
                     "observacoes": int(validos.sum()),
+                    "modo_limite": modo_limite,
+                    "divergencias": int((referencia[validos] != teste.loc[validos, "cenario_principal"]).sum()),
+                    "cenario_ultimo_mes": teste["cenario_principal"].iloc[-1],
                 }
             )
     return pd.DataFrame(linhas)
@@ -225,3 +269,19 @@ def comparar_classificacao_temporal(
         }
     )
     return comparacao, resumo
+
+
+def revisar_sazonalidade(metricas: pd.DataFrame) -> pd.DataFrame:
+    """Perfil mensal descritivo em amostra comum; não é ajuste sazonal formal."""
+    tabela = pd.DataFrame({
+        "mes_calendario": metricas["data"].dt.month,
+        "variacao_mensal_real_pct": metricas["concessoes_reais_milhoes"].pct_change(fill_method=None) * 100,
+        "variacao_anual_mm3_pct": metricas["concessoes_reais_var_12m_pct_mm3"],
+        "variacao_anual_mm6_pct": metricas["concessoes_reais_var_12m_pct_mm6"],
+    }).dropna()
+    return tabela.groupby("mes_calendario").agg(
+        observacoes=("variacao_mensal_real_pct", "size"),
+        mensal_media_pct=("variacao_mensal_real_pct", "mean"),
+        anual_mm3_media_pct=("variacao_anual_mm3_pct", "mean"),
+        anual_mm6_media_pct=("variacao_anual_mm6_pct", "mean"),
+    ).reset_index()

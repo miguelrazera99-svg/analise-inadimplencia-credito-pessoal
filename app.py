@@ -2,9 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
-from plotly.subplots import make_subplots
 
 from src.analysis import analisar_defasagens, comparar_classificacao_temporal
 
@@ -14,8 +12,8 @@ DATA_FILE = ROOT / "data" / "processed" / "base_metricas_bcb.csv"
 ROBUSTEZ_FILE = ROOT / "data" / "processed" / "teste_robustez.csv"
 
 
-@st.cache_data(show_spinner=False)
-def carregar_base_processada(caminho: Path) -> pd.DataFrame:
+@st.cache_data(show_spinner=False, max_entries=8)
+def carregar_base_processada(caminho: Path, modificacao_ns: int) -> pd.DataFrame:
     """Carrega a base mensal fechada, com datas no formato ISO."""
     return pd.read_csv(
         caminho,
@@ -24,19 +22,19 @@ def carregar_base_processada(caminho: Path) -> pd.DataFrame:
     )
 
 
-@st.cache_data(show_spinner=False)
-def carregar_tabela_processada(caminho: Path) -> pd.DataFrame:
+@st.cache_data(show_spinner=False, max_entries=8)
+def carregar_tabela_processada(caminho: Path, modificacao_ns: int) -> pd.DataFrame:
     """Carrega tabelas auxiliares estáticas do dashboard."""
     return pd.read_csv(caminho)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, max_entries=8)
 def calcular_defasagens(base: pd.DataFrame) -> pd.DataFrame:
     """Calcula uma única vez as associações para a base completa."""
-    return analisar_defasagens(base)
+    return analisar_defasagens(base, amostra_comum=True)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, max_entries=8)
 def calcular_resumo_temporal(base: pd.DataFrame) -> pd.DataFrame:
     """Resume a comparação retrospectiva e sem look-ahead."""
     _, resumo = comparar_classificacao_temporal(base)
@@ -52,7 +50,7 @@ if not DATA_FILE.exists():
     st.stop()
 
 try:
-    df_completo = carregar_base_processada(DATA_FILE)
+    df_completo = carregar_base_processada(DATA_FILE, DATA_FILE.stat().st_mtime_ns)
 except (OSError, ValueError, pd.errors.ParserError) as erro:
     st.error(f"Não foi possível carregar a base processada: {erro}")
     st.stop()
@@ -112,48 +110,19 @@ with tab_visao:
         fig_risco = px.line(risco, x="data", y=["Não consignado", "Consignado"], title="Inadimplência: não consignado × consignado", labels={"value": "% da carteira", "data": "Data", "variable": "Modalidade"})
         st.plotly_chart(fig_risco, width="stretch")
     with right:
-        fig_preco = make_subplots(specs=[[{"secondary_y": True}]])
-        fig_preco.add_trace(
-            go.Scatter(
-                x=df["data"],
-                y=df["juros_nao_consignado_pct_mes"],
-                name="Juros do crédito",
-                mode="lines",
-            ),
-            secondary_y=False,
+        precos = df.rename(columns={
+            "juros_nao_consignado_pct_mes": "Juros do crédito",
+            "selic_pct_mes": "Selic mensal",
+            "premio_sobre_selic_pp": "Prêmio bruto sobre a Selic",
+        })
+        fig_preco = px.line(
+            precos, x="data",
+            y=["Juros do crédito", "Selic mensal", "Prêmio bruto sobre a Selic"],
+            title="Preço do crédito e Selic — escala comum",
+            labels={"value": "% a.m. / p.p.", "data": "Data", "variable": "Indicador"},
         )
-        fig_preco.add_trace(
-            go.Scatter(
-                x=df["data"],
-                y=df["premio_sobre_selic_pp"],
-                name="Prêmio bruto sobre a Selic",
-                mode="lines",
-            ),
-            secondary_y=False,
-        )
-        fig_preco.add_trace(
-            go.Scatter(
-                x=df["data"],
-                y=df["selic_pct_mes"],
-                name="Selic mensal",
-                mode="lines",
-                line={"dash": "dot"},
-            ),
-            secondary_y=True,
-        )
-        fig_preco.update_layout(
-            title="Preço do crédito e Selic",
-            hovermode="x unified",
-            legend_title_text="Indicador",
-        )
-        fig_preco.update_xaxes(title_text="Data")
-        fig_preco.update_yaxes(title_text="Juros e prêmio (% a.m. / p.p.)", secondary_y=False)
-        fig_preco.update_yaxes(title_text="Selic (% a.m.)", rangemode="tozero", secondary_y=True)
         st.plotly_chart(fig_preco, width="stretch")
-        st.caption(
-            "A Selic usa o eixo direito para preservar sua legibilidade. "
-            "O prêmio bruto sobre a Selic não é o spread bancário oficial."
-        )
+        st.caption("O prêmio bruto sobre a Selic não é o spread bancário oficial.")
 
     st.subheader("Distribuição dos cenários")
     contagem = df.dropna(subset=["cenario_principal"]).groupby("cenario_principal", as_index=False).size().sort_values("size", ascending=False)
@@ -165,6 +134,8 @@ with tab_defasagens:
         "Associação de Pearson entre a variação em 12 meses das concessões reais atuais e "
         "a variação da inadimplência 3, 6, 9 e 12 meses à frente. Correlação não demonstra causalidade."
     )
+    st.caption("As análises técnicas usam o histórico completo, independentemente do filtro lateral. Todos os horizontes usam os mesmos meses de origem.")
+    st.write("O alvo principal é D(t+h) − D(t+h−12). A coluna de mudança futura usa D(t+h) − D(t). Nenhum alvo futuro entra na classificação do mês t.")
     defasagens = calcular_defasagens(df_completo)
     if defasagens.empty or defasagens["correlacao_pearson"].isna().all():
         st.warning("Não há pares válidos suficientes para calcular as defasagens.")
@@ -180,15 +151,22 @@ with tab_metodo:
         - A classificação principal usa média móvel de 3 meses e percentil neutro de 20%.
         - A robustez compara percentis 10%, 20% e 30% e médias móveis de 3 e 6 meses.
         - A classificação exibida é **retrospectiva**: seus limites usam a amostra completa.
-        - Para simular uma leitura em tempo real, a alternativa *expanding window* usa apenas dados anteriores a cada mês e elimina look-ahead.
+        - Para simular uma leitura em tempo real, a alternativa *expanding window* estima limites com dados anteriores ao mês. Isso não corrige revisões históricas ou atrasos de publicação do BCB.
         - A matriz é uma regra descritiva de monitoramento agregado, não um modelo causal ou de risco individual.
         """
     )
     if ROBUSTEZ_FILE.exists():
-        robustez = carregar_tabela_processada(ROBUSTEZ_FILE)
+        robustez = carregar_tabela_processada(ROBUSTEZ_FILE, ROBUSTEZ_FILE.stat().st_mtime_ns)
         if not robustez.empty:
             st.dataframe(robustez.style.format({"concordancia_com_referencia_pct": "{:.1f}%"}), width="stretch")
-    st.subheader("Retrospectiva × alternativa sem look-ahead")
+    st.caption("Concordância calculada nos meses válidos comuns às seis configurações. Percentil 20 é o quantil 0,20 dos movimentos absolutos, não uma tolerância fixa de 20%.")
+    for arquivo, titulo in [("teste_robustez_expanding.csv", "Robustez com limites expansivos"), ("revisao_sazonalidade.csv", "Perfil mensal e sazonalidade")]:
+        caminho = ROOT / "data" / "processed" / arquivo
+        if caminho.exists():
+            st.subheader(titulo)
+            st.dataframe(carregar_tabela_processada(caminho, caminho.stat().st_mtime_ns), width="stretch")
+    st.write("Médias móveis usam apenas o mês atual e os anteriores. Variações anuais atenuam sazonalidade, mas não são dessazonalização formal nem garantem estacionariedade. O perfil por mês do calendário é descritivo e pode refletir tendência e choques.")
+    st.subheader("Retrospectiva × limites sem informação futura")
     resumo_temporal = calcular_resumo_temporal(
         df_completo[[
             "data", "concessoes_milhoes", "inadimplencia_nao_consignado_pct",
@@ -196,6 +174,7 @@ with tab_metodo:
             "inadimplencia_consignado_pct", "selic_pct_mes", "ipca_pct_mes",
         ]]
     )
+    st.caption("São necessários 24 valores anteriores válidos para estimar cada limite expansivo. Expansão sem deterioração observada não garante ausência de deterioração futura.")
     st.dataframe(resumo_temporal.style.format({"concordancia_pct": "{:.1f}%"}), width="stretch")
 
 st.caption(

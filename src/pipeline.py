@@ -13,9 +13,11 @@ from src.analysis import (
     comparar_classificacao_temporal,
     construir_metricas,
     resumir_qualidade,
+    revisar_sazonalidade,
     testar_robustez,
 )
 from src.bcb import coletar_base_analitica
+from src.report import gerar_relatorio
 
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -57,6 +59,18 @@ def executar(*, atualizar: bool, fim: str | None = None) -> tuple[pd.DataFrame, 
     testar_robustez(base).to_csv(
         PASTA_PROCESSADOS / "teste_robustez.csv", index=False, encoding="utf-8-sig"
     )
+    analisar_defasagens(metricas, amostra_comum=True).to_csv(
+        PASTA_PROCESSADOS / "analise_defasagens_amostra_comum.csv", index=False, encoding="utf-8-sig"
+    )
+    testar_robustez(base, modo_limite="expanding").to_csv(
+        PASTA_PROCESSADOS / "teste_robustez_expanding.csv", index=False, encoding="utf-8-sig"
+    )
+    construir_metricas(base, modo_limite="expanding").to_csv(
+        PASTA_PROCESSADOS / "base_metricas_expanding.csv", index=False, encoding="utf-8-sig", date_format="%Y-%m-%d"
+    )
+    revisar_sazonalidade(metricas).to_csv(
+        PASTA_PROCESSADOS / "revisao_sazonalidade.csv", index=False, encoding="utf-8-sig"
+    )
     comparacao_temporal, resumo_temporal = comparar_classificacao_temporal(base)
     comparacao_temporal.to_csv(
         PASTA_PROCESSADOS / "comparacao_classificacao_temporal.csv",
@@ -70,6 +84,7 @@ def executar(*, atualizar: bool, fim: str | None = None) -> tuple[pd.DataFrame, 
     resumir_qualidade(base).to_csv(
         PASTA_PROCESSADOS / "qualidade_dados.csv", index=False, encoding="utf-8-sig", date_format="%Y-%m-%d"
     )
+    gerar_relatorio(base, metricas, RAIZ / "outputs" / "figures")
     return base, metricas
 
 
@@ -86,6 +101,4 @@ if __name__ == "__main__":
     )
     argumentos = parser.parse_args()
     base, metricas = executar(atualizar=argumentos.atualizar, fim=argumentos.fim)
-    print(f"Base analitica: {base.shape[0]} meses, {base.shape[1]} colunas")
-    print(f"Base de metricas: {metricas.shape[0]} meses, {metricas.shape[1]} colunas")
-    print(f"Ultimo periodo: {metricas['data'].max():%m/%Y}")
+    LOGGER.info("Base analítica: %s meses; métricas: %s colunas; último período: %s", len(base), len(metricas.columns), metricas['data'].max().strftime('%m/%Y'))

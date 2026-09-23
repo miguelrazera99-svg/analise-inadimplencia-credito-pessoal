@@ -71,7 +71,7 @@ As variações em 12 meses ajudam a reduzir a influência de tendência e sazona
 
 A classificação principal usa o percentil 20 dos movimentos absolutos históricos como faixa neutra e uma média móvel de 3 meses. Os demais parâmetros são usados no teste de robustez. Essa leitura principal é **retrospectiva**: o limite único é estimado com toda a amostra e, portanto, não deve ser aplicado diretamente como se estivesse disponível em cada data histórica.
 
-Para tratar explicitamente o risco de vazamento temporal, o projeto também calcula uma alternativa **sem look-ahead**, com janela expansiva (*expanding window*). Para cada mês, os limites são estimados exclusivamente com observações anteriores, com mínimo de 24 observações válidas. O arquivo `comparacao_classificacao_temporal.csv` compara as duas leituras; a alternativa expansiva é a apropriada para simular monitoramento em tempo real, enquanto a classificação principal permanece útil para descrição retrospectiva homogênea.
+Para tratar o vazamento na calibração dos limites, o projeto calcula uma alternativa com janela expansiva (*expanding window*). Cada limite usa exclusivamente observações anteriores, com mínimo de 24 valores válidos. `comparacao_classificacao_temporal.csv` compara as leituras e `base_metricas_expanding.csv` permite auditar os limites por mês. Isso remove look-ahead dos **limites**, mas não constitui backtest em tempo real: a base não contém vintages nem datas de divulgação, e os indicadores de t só estão disponíveis após publicação. Revisões históricas do BCB continuam sendo uma limitação.
 
 | Concessões reais | Inadimplência | Cenário |
 |---|---|---|
@@ -86,7 +86,7 @@ O período de março de 2020 a dezembro de 2021 é destacado como choque extraor
 
 ## Resultado mais recente — dezembro de 2025
 
-- concessões: aproximadamente **R$ 21,8 bilhões**, crescimento nominal de cerca de **6,0%** em 12 meses;
+- concessões: aproximadamente **R$ 21,8 bilhões**; crescimento anual da média móvel de três meses de **8,22% nominal** e **3,59% real**;
 - saldo da carteira: aproximadamente **R$ 388,4 bilhões**, crescimento nominal de cerca de **18,9%** em 12 meses;
 - inadimplência não consignada: **9,16%**, alta de **2,70 p.p.** em 12 meses;
 - inadimplência consignada: **2,81%**, diferencial de **6,35 p.p.**;
@@ -94,6 +94,42 @@ O período de março de 2020 a dezembro de 2021 é destacado como choque extraor
 - cenário principal: **Deterioração do risco**.
 
 Os volumes cresceram nominalmente, mas a piora relevante da inadimplência sustenta a leitura de deterioração do risco na regra principal, que considera as concessões em termos reais. Isso não significa que as novas concessões tenham causado a piora: o fluxo de originação e o risco do estoque podem se relacionar com defasagem.
+
+### Validação técnica e conclusões
+
+| Horizonte | Correlação com variação anual futura | Correlação com mudança de t até t+h | Pares comuns |
+|---:|---:|---:|---:|
+| 3 meses | -0,081 | 0,181 | 152 |
+| 6 meses | 0,135 | 0,287 | 152 |
+| 9 meses | 0,314 | 0,362 | 152 |
+| 12 meses | 0,385 | 0,385 | 152 |
+
+O primeiro alvo é `D(t+h) − D(t+h−12)`; o segundo é `D(t+h) − D(t)`.
+Para h menor que 12, a janela anual futura inclui meses anteriores a t. Os dois
+alvos respondem perguntas diferentes. Os meses finais sem alvo observado são
+excluídos. O arquivo `analise_defasagens.csv` conserva a amostra disponível por
+horizonte; `analise_defasagens_amostra_comum.csv` fixa as mesmas 152 origens.
+Autocorrelação e janelas sobrepostas impedem tratar os pares como independentes.
+Não há inferência causal, p-valores ou escolha de horizonte por desempenho.
+
+As seis combinações de percentis 10/20/30 e MM3/MM6 concordam entre **82,0% e
+100,0%** em **161 meses comuns** na classificação retrospectiva. Na expansiva,
+a concordância vai de **82,5% a 100,0%** em **137 meses comuns**. A referência é
+MM3/P20 dentro de cada modo. A leitura retrospectiva e a expansiva concordam em
+**95,7% dos 140 meses comparáveis**. Concordância não é acurácia preditiva; algumas
+configurações classificam dezembro como crescimento com alerta, embora todas
+registrem aumento do risco. Consulte [as conclusões geradas](outputs/conclusoes.md).
+
+O diagnóstico por mês do calendário compara crescimento mensal real e anual
+das MM3/MM6 em amostra comum. Ele mostra menor dispersão do perfil anual entre
+meses, mas não prova remoção de sazonalidade. Médias móveis usam apenas o mês
+atual e os anteriores; não são centradas. Não há dessazonalização formal nem
+garantia de estacionariedade. Choques e composição da amostra afetam esse perfil.
+
+**Expansão sem deterioração observada** descreve somente a combinação
+contemporânea dos indicadores agregados, sem garantir qualidade das novas safras
+ou ausência de deterioração futura. O consignado é referência descritiva, não
+contrafactual. Veja [a documentação metodológica](docs/metodologia.md).
 
 ## Estrutura
 
@@ -133,13 +169,24 @@ O comando sem `--atualizar` usa a base local validada. Para reproduzir a coleta 
 
 Abra `notebooks/01_coleta_bcb.ipynb` para acompanhar a análise completa.
 
+Para executar o notebook e atualizar sua versão HTML, sem consultar a API:
+
+```powershell
+.\.venv\Scripts\python.exe -m jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=180 notebooks/01_coleta_bcb.ipynb
+.\.venv\Scripts\python.exe -m jupyter nbconvert --to html notebooks/01_coleta_bcb.ipynb
+```
+
+O notebook e o pipeline usam as mesmas funções de `src/`. Ambos regeneram CSVs,
+figuras e `outputs/conclusoes.md`; o notebook não mantém regras paralelas.
+As figuras HTML usam Plotly via CDN e precisam de conexão para exibição.
+
 O arquivo `requirements.txt` contém apenas as dependências necessárias para executar o pipeline e publicar o dashboard. O arquivo `requirements-dev.txt` acrescenta Jupyter e Pytest para desenvolvimento e validação.
 
 ## Reprodutibilidade e desempenho
 
 - o pipeline registra coleta, tentativas e geração das saídas por meio de *logging*;
 - datas da API e dos CSVs são convertidas com formatos explícitos;
-- o dashboard usa `st.cache_data` para evitar releituras e recálculos desnecessários a cada interação;
+- o dashboard usa `st.cache_data`, com invalidação pela data de modificação dos arquivos e limite de entradas;
 - o recorte padrão do pipeline permanece fixado em **31 de dezembro de 2025**;
 - testes automatizados validam cenários, robustez, defasagens, qualidade, ausência de look-ahead e inicialização do dashboard;
 - o workflow em `.github/workflows/tests.yml` executa a suíte automaticamente em *pushes* e *pull requests* no GitHub.
@@ -151,7 +198,7 @@ O arquivo `requirements.txt` contém apenas as dependências necessárias para e
 - concessões são fluxo e inadimplência é estoque;
 - correlações defasadas não identificam causa e efeito;
 - resultados dependem das faixas neutras e da janela de suavização;
-- a classificação retrospectiva usa a amostra completa; para uso temporal, deve-se preferir a versão expansiva sem look-ahead;
+- a classificação retrospectiva usa a amostra completa; a versão expansiva protege a calibração, mas não contempla vintages ou atrasos de publicação;
 - o prêmio bruto sobre a Selic não incorpora todos os componentes do spread oficial;
 - pandemia e outros choques podem produzir rupturas estruturais.
 - as variações em 12 meses mitigam tendência e sazonalidade, mas a estacionariedade não foi comprovada por testes formais;
